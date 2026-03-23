@@ -71,6 +71,21 @@ function createWindow(): BrowserWindow {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
+  // 开发模式下启用开发者工具快捷键
+  if (isDev) {
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+        mainWindow.webContents.toggleDevTools()
+        event.preventDefault()
+      }
+      // F12 快捷键
+      if (input.key === 'F12') {
+        mainWindow.webContents.toggleDevTools()
+        event.preventDefault()
+      }
+    })
+  }
+
   return mainWindow
 }
 

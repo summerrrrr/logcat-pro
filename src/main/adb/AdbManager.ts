@@ -219,8 +219,29 @@ export class AdbManager extends EventEmitter {
   // 清理特定进程的CPU统计缓存
   clearProcessStats(serial: string, pid: number): void {
     const statKey = `${serial}-${pid}`
+
+    console.log(`[AdbManager] 清理进程缓存: ${statKey}`)
+
+    // 获取清理前的数据量
+    const cpuHistorySize = this.cpuHistory.get(statKey)?.length || 0
+    const hasPrevStats = this.previousCpuStats.has(statKey)
+
     this.previousCpuStats.delete(statKey)
     this.cpuHistory.delete(statKey)
+
+    console.log(`[AdbManager] ✅ 已清理: previousCpuStats=${hasPrevStats}, cpuHistory=${cpuHistorySize}个样本`)
+
+    // 如果该设备没有其他进程在监控，清理设备缓存
+    const hasOtherProcess = Array.from(this.previousCpuStats.keys()).some(
+      key => key.startsWith(`${serial}-`) && key !== statKey
+    )
+    if (!hasOtherProcess) {
+      this.coreCounts.delete(serial)
+      console.log(`[AdbManager] ✅ 设备 ${serial} 无其他监控进程，已清理设备缓存`)
+    }
+
+    // 打印当前缓存状态
+    console.log(`[AdbManager] 当前缓存状态: previousCpuStats=${this.previousCpuStats.size}, cpuHistory=${this.cpuHistory.size}, coreCounts=${this.coreCounts.size}`)
   }
 
   listProcesses(serial: string): Promise<ProcessInfo[]> {

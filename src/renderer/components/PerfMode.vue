@@ -212,34 +212,55 @@ function getChartOption(name: string, color: string) {
   }
 }
 
-watch(() => deviceStore.performanceData, (newData) => {
-  if (cpuChart && memChart && fpsChart) {
-    cpuChart.setOption({
-      xAxis: { data: newData.timestamps },
-      series: [{ data: newData.cpu }]
-    })
-    memChart.setOption({
-      xAxis: { data: newData.timestamps },
-      series: [{ data: newData.memory }]
-    })
-    fpsChart.setOption({
-      xAxis: { data: newData.timestamps },
-      series: [{ data: newData.fps }]
-    })
-  }
-}, { deep: true })
+// 优化：避免深度监听，减少 GC 压力
+// 使用 watchEffect 并立即解构，避免闭包持有引用
+let stopWatchEffect: (() => void) | null = null
+
+function updateCharts() {
+  if (!cpuChart || !memChart || !fpsChart) return
+
+  // 立即解构，避免持有 store 引用
+  const { timestamps, cpu, memory, fps } = deviceStore.performanceData
+
+  cpuChart.setOption({
+    xAxis: { data: timestamps },
+    series: [{ data: cpu }]
+  })
+  memChart.setOption({
+    xAxis: { data: timestamps },
+    series: [{ data: memory }]
+  })
+  fpsChart.setOption({
+    xAxis: { data: timestamps },
+    series: [{ data: fps }]
+  })
+}
+
+// 使用 watch 而不是 watchEffect，更精确控制
+stopWatchEffect = watch(
+  () => deviceStore.performanceData.timestamps.length,
+  () => updateCharts(),
+  { flush: 'post' }
+)
 
 watch(activePid, async (newPid) => {
   if (newPid) {
     await nextTick()
     initCharts()
   } else {
-    cpuChart?.dispose()
-    memChart?.dispose()
-    fpsChart?.dispose()
-    cpuChart = null
-    memChart = null
-    fpsChart = null
+    // 确保清理图表实例
+    if (cpuChart) {
+      cpuChart.dispose()
+      cpuChart = null
+    }
+    if (memChart) {
+      memChart.dispose()
+      memChart = null
+    }
+    if (fpsChart) {
+      fpsChart.dispose()
+      fpsChart = null
+    }
   }
 })
 
@@ -251,16 +272,96 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
 })
 
-onUnmounted(() => {
-  // 停止性能监控
-  if (isPolling.value) {
-    deviceStore.setActivePid(null)
+onUnmounted(async () => {
+  console.log('[PerfMode] 🔴 组件开始卸载...')
+
+  // 打印卸载前的内存信息（如果可用）
+  if (performance.memory) {
+    console.log('[PerfMode] 卸载前内存:', {
+      usedJSHeapSize: `${(performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2)} MB`,
+      totalJSHeapSize: `${(performance.memory.totalJSHeapSize / 1024 / 1024).toFixed(2)} MB`,
+      jsHeapSizeLimit: `${(performance.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(2)} MB`
+    })
   }
 
+  // 停止 watch 监听器
+  if (stopWatchEffect) {
+    console.log('[PerfMode] 停止 watch 监听器...')
+    stopWatchEffect()
+    stopWatchEffect = null
+  }
+
+  // 🔥 关键修复：必须在 setActivePid(null) 之前保存当前的设备和进程信息
+  // 因为 setActivePid(null) 会将 activePid 清空，导致后续无法清理主进程缓存
+  const currentDevice = deviceStore.activeDevice
+  const currentPid = deviceStore.activePid
+
+  // 停止性能监控
+  if (isPolling.value) {
+    console.log('[PerfMode] 停止性能轮询...')
+    deviceStore.stopPerformancePolling()
+  }
+
+  // 🔥 关键修复：清理主进程 AdbManager 中的缓存
+  if (currentDevice && currentPid) {
+    console.log(`[PerfMode] 清理主进程缓存: device=${currentDevice}, pid=${currentPid}`)
+    try {
+      await window.electronAPI.device.clearProcessStats(currentDevice, currentPid)
+      console.log('[PerfMode] ✅ 主进程缓存已清理')
+    } catch (e) {
+      console.warn('[PerfMode] ⚠️ 清理主进程缓存失败:', e)
+    }
+  } else {
+    console.log(`[PerfMode] 无需清理主进程缓存 (device=${currentDevice}, pid=${currentPid})`)
+  }
+
+  // 🔥 关键修复：清空 activePid，避免重新打开页面时显示"监控中"
+  console.log('[PerfMode] 清空 activePid 状态...')
+  deviceStore.activePid = null
+
+  // 清空性能历史数据，释放内存
+  console.log('[PerfMode] 清空性能历史数据...')
+  deviceStore.clearPerformanceData()
+
+  // 移除事件监听器
+  console.log('[PerfMode] 移除事件监听器...')
   window.removeEventListener('resize', handleResize)
-  cpuChart?.dispose()
-  memChart?.dispose()
-  fpsChart?.dispose()
+
+  // 确保销毁所有图表实例，防止内存泄漏
+  console.log('[PerfMode] 销毁图表实例...')
+  if (cpuChart) {
+    cpuChart.dispose()
+    cpuChart = null
+    console.log('[PerfMode] ✅ CPU图表已销毁')
+  }
+  if (memChart) {
+    memChart.dispose()
+    memChart = null
+    console.log('[PerfMode] ✅ 内存图表已销毁')
+  }
+  if (fpsChart) {
+    fpsChart.dispose()
+    fpsChart = null
+    console.log('[PerfMode] ✅ FPS图表已销毁')
+  }
+
+  // 清空进程列表，释放引用
+  processes.value = []
+  selectedPid.value = null
+
+  console.log('[PerfMode] 🟢 组件卸载完成')
+  console.log('[PerfMode] 💡 提示：在 Chrome DevTools 中手动触发 GC，观察内存释放效果')
+  console.log('[PerfMode] 💡 主进程内存：打开任务管理器查看 Electron 主进程内存变化')
+
+  // 延迟打印卸载后的内存信息
+  setTimeout(() => {
+    if (performance.memory) {
+      console.log('[PerfMode] 卸载后内存（GC前）:', {
+        usedJSHeapSize: `${(performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2)} MB`,
+        totalJSHeapSize: `${(performance.memory.totalJSHeapSize / 1024 / 1024).toFixed(2)} MB`
+      })
+    }
+  }, 100)
 })
 
 function handleResize() {

@@ -117,10 +117,13 @@ export const useDeviceStore = defineStore('device', () => {
 
   function stopPerformancePolling() {
     if (perfInterval) {
+      console.log('[deviceStore] 停止性能轮询，清除定时器')
       clearInterval(perfInterval)
       perfInterval = null
     }
     isPaused.value = false
+    errorCount = 0
+    console.log('[deviceStore] ✅ 性能轮询已停止')
   }
 
   function togglePause() {
@@ -128,7 +131,25 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   function clearPerformanceData() {
+    const before = {
+      cpu: performanceData.value.cpu.length,
+      memory: performanceData.value.memory.length,
+      fps: performanceData.value.fps.length,
+      timestamps: performanceData.value.timestamps.length
+    }
+
+    console.log('[deviceStore] 清理前数据量:', before)
+
+    // 完全清空引用，帮助 GC
+    performanceData.value.cpu.length = 0
+    performanceData.value.memory.length = 0
+    performanceData.value.fps.length = 0
+    performanceData.value.timestamps.length = 0
+
+    // 重新赋值新对象
     performanceData.value = { cpu: [], memory: [], fps: [], timestamps: [] }
+
+    console.log('[deviceStore] ✅ 性能数据已清空')
   }
 
   function setActiveDevice(serial: string | null) {
