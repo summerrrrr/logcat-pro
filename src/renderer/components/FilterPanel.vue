@@ -46,24 +46,60 @@
       placeholder="搜索"
       size="small"
       clearable
-      style="width: 160px"
+      style="width: 180px"
       @input="onTagInput"
+      @keyup.enter="onTagEnter"
+      @blur="onTagBlur"
     >
       <template #prefix>
-        <el-icon><Search /></el-icon>
+        <el-dropdown trigger="click" @command="onTagChange" v-if="logStore.filterHistory.length" placement="bottom-start">
+          <div class="history-prefix">
+            <el-icon><Search /></el-icon>
+            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu class="history-dropdown-menu">
+              <el-dropdown-item v-for="item in logStore.filterHistory" :key="item" :command="item">
+                <div class="history-option">
+                  <span>{{ item }}</span>
+                  <el-icon class="delete-icon" @click.stop="onRemoveFilterHistory(item)"><Close /></el-icon>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-icon v-else><Search /></el-icon>
       </template>
     </el-input>
 
     <el-input
       v-model="keywordFilter"
-      placeholder="排除标签..."
+      placeholder="排除标签"
       size="small"
       clearable
       style="flex: 1; min-width: 200px"
       @input="onKeywordInput"
+      @keyup.enter="onExcludeEnter"
+      @blur="onExcludeBlur"
     >
       <template #prefix>
-        <el-icon><FilterIcon /></el-icon>
+        <el-dropdown trigger="click" @command="onExcludeChange" v-if="logStore.excludeHistory.length" placement="bottom-start">
+          <div class="history-prefix">
+            <el-icon><FilterIcon /></el-icon>
+            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu class="history-dropdown-menu">
+              <el-dropdown-item v-for="item in logStore.excludeHistory" :key="item" :command="item">
+                <div class="history-option">
+                  <span>{{ item }}</span>
+                  <el-icon class="delete-icon" @click.stop="onRemoveExcludeHistory(item)"><Close /></el-icon>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-icon v-else><FilterIcon /></el-icon>
       </template>
     </el-input>
   </div>
@@ -71,7 +107,7 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
-import { Search, Filter as FilterIcon } from '@element-plus/icons-vue'
+import { Search, Filter as FilterIcon, Close, ArrowDown } from '@element-plus/icons-vue'
 import { useLogStore } from '../stores/logStore'
 import { useDeviceStore } from '../stores/deviceStore'
 import type { LogLevel, ProcessInfo } from '../../shared/types'
@@ -109,12 +145,56 @@ function toggleLevel(level: LogLevel) {
   logStore.setFilter({ levels: current })
 }
 
+function onTagChange(val: string) {
+  tagFilter.value = val
+  logStore.setFilter({ tag: val })
+}
+
 function onTagInput() {
   logStore.setFilter({ tag: tagFilter.value })
 }
 
+function onTagBlur() {
+  if (tagFilter.value) {
+    logStore.addFilterHistory(tagFilter.value)
+  }
+}
+
+function onTagEnter() {
+  if (tagFilter.value) {
+    logStore.addFilterHistory(tagFilter.value)
+    logStore.setFilter({ tag: tagFilter.value })
+  }
+}
+
+function onExcludeChange(val: string) {
+  keywordFilter.value = val
+  logStore.setFilter({ keyword: val })
+}
+
 function onKeywordInput() {
   logStore.setFilter({ keyword: keywordFilter.value })
+}
+
+function onExcludeBlur() {
+  if (keywordFilter.value) {
+    logStore.addExcludeHistory(keywordFilter.value)
+  }
+}
+
+function onExcludeEnter() {
+  if (keywordFilter.value) {
+    logStore.addExcludeHistory(keywordFilter.value)
+    logStore.setFilter({ keyword: keywordFilter.value })
+  }
+}
+
+function onRemoveFilterHistory(item: string) {
+  logStore.removeFilterHistory(item)
+}
+
+function onRemoveExcludeHistory(item: string) {
+  logStore.removeExcludeHistory(item)
 }
 
 function onPidSelect(val: any) {
@@ -198,9 +278,73 @@ onUnmounted(() => {
   background: var(--border-color);
   margin: 0 4px;
 }
+.history-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 160px;
+}
+.history-option span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-prefix {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.2s;
+  padding: 0 4px;
+  margin-left: -4px;
+}
+.history-prefix:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+  border-radius: 4px;
+}
+.arrow-icon {
+  font-size: 12px;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+.delete-icon {
+  margin-left: 8px;
+  margin-right: -4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.2s;
+  padding: 4px;
+  border-radius: 4px;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+}
+.delete-icon:hover {
+  color: var(--danger);
+  background: var(--danger-dim);
+  transform: scale(1.2);
+  opacity: 1;
+}
 </style>
 
 <style>
+.history-dropdown-menu {
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: var(--shadow-lg) !important;
+  padding: 4px 0 !important;
+}
+.history-dropdown-menu .el-dropdown-menu__item {
+  color: var(--text-primary) !important;
+  padding: 4px 8px 4px 12px !important;
+}
+.history-dropdown-menu .el-dropdown-menu__item:hover {
+  background: var(--bg-hover) !important;
+}
 .pid-select-popper {
   background: var(--bg-secondary) !important;
   border: 1px solid var(--border-color) !important;

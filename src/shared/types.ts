@@ -101,3 +101,16 @@ export interface AIAnalysisRequest {
   history?: AIChatMessage[]
   providerConfig: AIProviderConfig
 }
+
+export interface PerformanceData {
+  cpu: number
+  memory: number
+  fps: number
+}
+
+export interface PerformanceHistory {
+  cpu: number[]
+  memory: number[]
+  fps: number[]
+  timestamps: string[]
+}

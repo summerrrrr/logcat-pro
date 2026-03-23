@@ -25,6 +25,41 @@ export const useLogStore = defineStore('log', () => {
     timeEnd: null,
   })
 
+  const filterHistory = ref<string[]>([])
+  const excludeHistory = ref<string[]>([])
+
+  function addFilterHistory(tag: string) {
+    if (!tag) return
+    const index = filterHistory.value.indexOf(tag)
+    if (index > -1) {
+      filterHistory.value.splice(index, 1)
+    }
+    filterHistory.value.unshift(tag)
+    if (filterHistory.value.length > 10) {
+      filterHistory.value.pop()
+    }
+  }
+
+  function addExcludeHistory(tag: string) {
+    if (!tag) return
+    const index = excludeHistory.value.indexOf(tag)
+    if (index > -1) {
+      excludeHistory.value.splice(index, 1)
+    }
+    excludeHistory.value.unshift(tag)
+    if (excludeHistory.value.length > 10) {
+      excludeHistory.value.pop()
+    }
+  }
+
+  function removeFilterHistory(tag: string) {
+    filterHistory.value = filterHistory.value.filter(t => t !== tag)
+  }
+
+  function removeExcludeHistory(tag: string) {
+    excludeHistory.value = excludeHistory.value.filter(t => t !== tag)
+  }
+
   // Support for multiple saved filters
   const savedFilters = ref<Record<string, LogFilter>>({})
   
@@ -220,6 +255,8 @@ export const useLogStore = defineStore('log', () => {
     isCollecting,
     isPaused,
     filter,
+    filterHistory,
+    excludeHistory,
     totalCount,
     logRate,
     selectedLog,
@@ -232,5 +269,9 @@ export const useLogStore = defineStore('log', () => {
     clearLogs,
     setFilter,
     selectLog,
+    addFilterHistory,
+    addExcludeHistory,
+    removeFilterHistory,
+    removeExcludeHistory,
   }
 })

@@ -211,6 +211,16 @@ export class AdbManager extends EventEmitter {
   dispose(): void {
     this.stopWatching()
     this.removeAllListeners()
+    this.previousCpuStats.clear()
+    this.cpuHistory.clear()
+    this.coreCounts.clear()
+  }
+
+  // 清理特定进程的CPU统计缓存
+  clearProcessStats(serial: string, pid: number): void {
+    const statKey = `${serial}-${pid}`
+    this.previousCpuStats.delete(statKey)
+    this.cpuHistory.delete(statKey)
   }
 
   listProcesses(serial: string): Promise<ProcessInfo[]> {
@@ -256,14 +266,18 @@ export class AdbManager extends EventEmitter {
     })
   }
 
-  private coreCount: number = 0
+  private coreCounts: Map<string, number> = new Map()
+  private previousCpuStats: Map<string, { utime: number, stime: number, timestamp: number }> = new Map()
+  private cpuHistory: Map<string, number[]> = new Map() // 保存最近的CPU采样值用于加权移动平均
 
   private async getCoreCount(serial: string): Promise<number> {
-    if (this.coreCount > 0) return this.coreCount
+    if (this.coreCounts.has(serial)) return this.coreCounts.get(serial)!
     return new Promise((resolve) => {
+      if (!this.adbPath) return resolve(8)
       exec(`"${this.adbPath}" -s ${serial} shell "nproc || grep -c ^processor /proc/cpuinfo"`, (err, stdout) => {
-        this.coreCount = (!err && stdout) ? parseInt(stdout.trim(), 10) || 8 : 8
-        resolve(this.coreCount)
+        const count = (!err && stdout) ? parseInt(stdout.trim(), 10) || 8 : 8
+        this.coreCounts.set(serial, count)
+        resolve(count)
       })
     })
   }
@@ -271,61 +285,114 @@ export class AdbManager extends EventEmitter {
   getProcessPerformance(serial: string, pid: number): Promise<{ cpu: number, memory: number }> {
     return new Promise(async (resolve) => {
       if (!this.adbPath) return resolve({ cpu: 0, memory: 0 })
-      
-      const cores = await this.getCoreCount(serial)
-      let cpu = 0
-      
-      // Strategy 1: 'top' Batch Mode (Best for real-time responsiveness)
-      // We look for the %CPU column specifically
-      exec(`"${this.adbPath}" -s ${serial} shell "top -n 1 -b -p ${pid}"`, { encoding: 'utf-8', timeout: 4000 }, (err, stdout) => {
-        if (!err && stdout) {
-          const lines = stdout.split('\n')
-          for (const line of lines) {
-            if (line.includes(` ${pid} `)) {
-              const parts = line.trim().split(/\s+/)
-              // Heuristic: CPU is usually index 8-10. Let's find the first float that isn't PID.
-              const val = parts.slice(1).find(p => p.includes('.') && parseFloat(p) < 1000)
-              if (val) {
-                cpu = parseFloat(val)
-                // If top already normalized it (common in newer Android), cpu will be < 100
-                // If it's cumulative (common in some busybox top), we divide by cores
-                if (cpu > 100) cpu = cpu / cores
-                console.log(`[AdbManager] Top CPU: ${cpu}% (Raw: ${val}, Cores: ${cores})`)
-              }
-              break
-            }
-          }
-        }
 
-        // Strategy 2: Fallback to dumpsys cpuinfo if top is 0 or failed
-        if (cpu === 0) {
-          exec(`"${this.adbPath}" -s ${serial} shell dumpsys cpuinfo`, { encoding: 'utf-8', timeout: 5000 }, (errD, stdoutD) => {
-            if (!errD && stdoutD) {
-              const dLines = stdoutD.split('\n')
-              for (const dLine of dLines) {
-                if (dLine.includes(`${pid}/`)) {
-                  const match = dLine.match(/(\d+\.?\d*)%/)
-                  if (match) {
-                    cpu = parseFloat(match[1]) / cores
-                    console.log(`[AdbManager] Dumpsys CPU: ${cpu}% (Normalized by ${cores} cores)`)
-                    break
+      const cores = await this.getCoreCount(serial)
+      const statKey = `${serial}-${pid}`
+      const now = Date.now()
+      let cpu = 0
+
+      exec(`"${this.adbPath}" -s ${serial} shell "cat /proc/${pid}/stat 2>/dev/null"`,
+        { encoding: 'utf-8', timeout: 5000 },
+        async (err, stdout) => {
+          if (!err && stdout) {
+            try {
+              const parts = stdout.trim().split(/\s+/)
+              if (parts.length >= 15) {
+                const utime = parseInt(parts[13], 10)
+                const stime = parseInt(parts[14], 10)
+
+                const prev = this.previousCpuStats.get(statKey)
+                if (prev) {
+                  const timeDeltaSec = (now - prev.timestamp) / 1000
+                  const cpuDelta = (utime + stime) - (prev.utime + prev.stime)
+
+                  // 时间间隔>=0.3秒才计算，避免除零和精度问题
+                  if (timeDeltaSec >= 0.3) {
+                    // 正确的CPU计算公式：USER_HZ = 100
+                    const USER_HZ = 100
+                    cpu = ((cpuDelta / USER_HZ) / timeDeltaSec * 100) / cores
+                    cpu = Math.max(0, Math.min(100, cpu))
+
+                    // 使用加权移动平均平滑数据（保留最近5个样本，最近的权重更高）
+                    let history = this.cpuHistory.get(statKey) || []
+                    history.push(cpu)
+                    if (history.length > 5) history.shift()
+                    this.cpuHistory.set(statKey, history)
+
+                    // 加权平均：权重 [0.1, 0.15, 0.2, 0.25, 0.3]
+                    const weights = [0.1, 0.15, 0.2, 0.25, 0.3]
+                    let weightedSum = 0
+                    let weightSum = 0
+                    for (let i = 0; i < history.length; i++) {
+                      const weight = weights[weights.length - history.length + i] || 0.1
+                      weightedSum += history[i] * weight
+                      weightSum += weight
+                    }
+                    cpu = weightedSum / weightSum
+
+                    console.log(`[AdbManager] CPU for ${pid}: ${cpu.toFixed(1)}% (raw: ${((cpuDelta / USER_HZ) / timeDeltaSec * 100 / cores).toFixed(1)}%, samples: ${history.length})`)
+
+                    // 更新基准点
+                    this.previousCpuStats.set(statKey, { utime, stime, timestamp: now })
+                  } else {
+                    // 时间间隔太短，返回上次的加权平均值
+                    const history = this.cpuHistory.get(statKey) || []
+                    if (history.length > 0) {
+                      const weights = [0.1, 0.15, 0.2, 0.25, 0.3]
+                      let weightedSum = 0
+                      let weightSum = 0
+                      for (let i = 0; i < history.length; i++) {
+                        const weight = weights[weights.length - history.length + i] || 0.1
+                        weightedSum += history[i] * weight
+                        weightSum += weight
+                      }
+                      cpu = weightedSum / weightSum
+                    }
                   }
+                } else {
+                  console.log(`[AdbManager] First sample for ${pid}`)
+                  this.previousCpuStats.set(statKey, { utime, stime, timestamp: now })
                 }
               }
+            } catch (e) {
+              console.error(`[AdbManager] Failed to parse /proc/stat:`, e)
             }
+          }
+
+          // 回退到 dumpsys cpuinfo
+          if (cpu === 0 && !this.previousCpuStats.has(statKey)) {
+            exec(`"${this.adbPath}" -s ${serial} shell dumpsys cpuinfo`,
+              { encoding: 'utf-8', timeout: 5000 },
+              (errD, stdoutD) => {
+                if (!errD && stdoutD) {
+                  const dLines = stdoutD.split('\n')
+                  for (const dLine of dLines) {
+                    if (dLine.includes(`${pid}/`)) {
+                      const match = dLine.match(/(\d+\.?\d*)%/)
+                      if (match) {
+                        cpu = parseFloat(match[1]) / cores
+                        break
+                      }
+                    }
+                  }
+                }
+                this.finishPerfResult(serial, pid, cpu, resolve)
+              })
+          } else {
             this.finishPerfResult(serial, pid, cpu, resolve)
-          })
-        } else {
-          this.finishPerfResult(serial, pid, cpu, resolve)
-        }
-      })
+          }
+        })
     })
   }
 
   private async finishPerfResult(serial: string, pid: number, cpu: number, resolve: (val: any) => void) {
     const memory = await this.getMemoryInfo(serial, pid)
-    console.log(`[AdbManager] Final Stats for ${pid} -> CPU: ${cpu}%, MEM: ${memory}MB`)
-    resolve({ cpu, memory })
+    const fps = await this.getFpsInfo(serial, pid)
+    const roundedCpu = Math.round(cpu * 10) / 10
+    const roundedMem = Math.round(memory * 100) / 100
+    const roundedFps = Math.round(fps * 10) / 10
+    console.log(`[AdbManager] Final Stats for ${pid} -> CPU: ${roundedCpu}%, MEM: ${roundedMem}MB, FPS: ${roundedFps}`)
+    resolve({ cpu: roundedCpu, memory: roundedMem, fps: roundedFps })
   }
 
   private getMemoryInfo(serial: string, pid: number): Promise<number> {
@@ -333,10 +400,10 @@ export class AdbManager extends EventEmitter {
       if (!this.adbPath) return resolve(0)
       exec(`"${this.adbPath}" -s ${serial} shell dumpsys meminfo ${pid}`, { encoding: 'utf-8', timeout: 5000 }, (err, stdout) => {
         if (!err && stdout) {
-          const match = stdout.match(/TOTAL\s+PSS:\s+(\d+)/i) || 
+          const match = stdout.match(/TOTAL\s+PSS:\s+(\d+)/i) ||
                         stdout.match(/TOTAL:\s+(\d+)/i) ||
                         stdout.match(/\s+TOTAL\s+(\d+)/)
-          
+
           if (match && match[1]) {
             const mem = parseInt(match[1], 10) / 1024
             return resolve(mem)
@@ -345,6 +412,67 @@ export class AdbManager extends EventEmitter {
         console.warn(`[AdbManager] Could not parse memory for PID ${pid}`)
         resolve(0)
       })
+    })
+  }
+
+  private getFpsInfo(serial: string, pid: number): Promise<number> {
+    return new Promise((resolve) => {
+      if (!this.adbPath) return resolve(0)
+
+      // 首先获取进程的包名
+      exec(`"${this.adbPath}" -s ${serial} shell "ps -p ${pid} -o NAME="`,
+        { encoding: 'utf-8', timeout: 3000 },
+        (err, stdout) => {
+          if (err || !stdout) {
+            console.warn(`[AdbManager] Could not get package name for PID ${pid}`)
+            return resolve(0)
+          }
+
+          const packageName = stdout.trim()
+          if (!packageName || !packageName.includes('.')) {
+            return resolve(0)
+          }
+
+          // 使用 dumpsys gfxinfo 获取帧率信息
+          exec(`"${this.adbPath}" -s ${serial} shell dumpsys gfxinfo ${packageName} framestats`,
+            { encoding: 'utf-8', timeout: 5000 },
+            (errGfx, stdoutGfx) => {
+              if (!errGfx && stdoutGfx) {
+                try {
+                  // 解析最近的帧时间数据
+                  const lines = stdoutGfx.split('\n')
+                  const frameTimestamps: number[] = []
+                  let inFrameData = false
+
+                  for (const line of lines) {
+                    if (line.includes('---PROFILEDATA---')) {
+                      inFrameData = true
+                      continue
+                    }
+                    if (inFrameData && line.trim() && !line.includes('---')) {
+                      const parts = line.trim().split(',')
+                      if (parts.length > 0 && !isNaN(parseInt(parts[0]))) {
+                        frameTimestamps.push(parseInt(parts[0]))
+                      }
+                    }
+                  }
+
+                  // 计算平均帧率（取最近的帧）
+                  if (frameTimestamps.length >= 2) {
+                    const recentFrames = frameTimestamps.slice(-30) // 最近30帧
+                    if (recentFrames.length >= 2) {
+                      const timeDiff = (recentFrames[recentFrames.length - 1] - recentFrames[0]) / 1e9 // 转换为秒
+                      const fps = (recentFrames.length - 1) / timeDiff
+                      return resolve(Math.min(fps, 120)) // 限制最大120fps
+                    }
+                  }
+                } catch (e) {
+                  console.warn(`[AdbManager] Failed to parse gfxinfo:`, e)
+                }
+              }
+              resolve(0)
+            })
+        })
     })
   }
 

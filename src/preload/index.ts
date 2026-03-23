@@ -12,6 +12,7 @@ const electronAPI = {
     screenshot: (serial: string) => ipcRenderer.invoke('device:screenshot', serial),
     listProcesses: (serial: string) => ipcRenderer.invoke('device:list-processes', serial),
     getPerformance: (serial: string, pid: number) => ipcRenderer.invoke('device:get-performance', serial, pid),
+    clearProcessStats: (serial: string, pid: number) => ipcRenderer.invoke('device:clear-process-stats', serial, pid),
     listDir: (serial: string, path: string) => ipcRenderer.invoke('device:list-dir', serial, path),
     readFile: (serial: string, path: string) => ipcRenderer.invoke('device:read-file', serial, path),
     onChanged: (callback: (devices: unknown[]) => void) => {
@@ -48,7 +49,7 @@ const electronAPI = {
   },
   storage: {
     search: (query: string, options?: object) => ipcRenderer.invoke('storage:search', query, options),
-    export: (serial?: string, options?: object) => ipcRenderer.invoke('storage:export', serial, options),
+    export: (serial?: string, options?: { defaultPath?: string, logs?: any[] }) => ipcRenderer.invoke('storage:export', serial, options),
     openLocalFile: () => ipcRenderer.invoke('storage:open-local-file'),
     selectDirectory: () => ipcRenderer.invoke('storage:select-directory'),
     saveScreenshot: (data: string, serial: string, defaultPath?: string) => 

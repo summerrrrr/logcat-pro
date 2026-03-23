@@ -65,14 +65,14 @@
 
     <div v-if="!activePid && !isPolling" class="welcome-screen">
       <div class="welcome-card glass">
-        <el-icon :size="48" class="welcome-icon"><Cpu /></el-icon>
+        <el-icon :size="48" class="welcome-icon"><PieChart /></el-icon>
         <h2>开始性能分析</h2>
         <p>1. 在右上角选择需要监控的进程<br>2. 点击播放按钮开始实时采集数据</p>
       </div>
     </div>
 
     <div v-else class="charts-container">
-      <div class="chart-card glass">
+      <div class="chart-card glass cpu-chart">
         <div class="chart-header">
           <span class="chart-title">CPU 使用率 (%)</span>
           <span class="chart-value">{{ currentCpu.toFixed(1) }}%</span>
@@ -80,12 +80,22 @@
         <div ref="cpuChartRef" class="chart-body"></div>
       </div>
 
-      <div class="chart-card glass">
-        <div class="chart-header">
-          <span class="chart-title">内存占用 (PSS MB)</span>
-          <span class="chart-value">{{ currentMem.toFixed(1) }} MB</span>
+      <div class="bottom-charts">
+        <div class="chart-card glass">
+          <div class="chart-header">
+            <span class="chart-title">内存占用 (PSS MB)</span>
+            <span class="chart-value">{{ currentMem.toFixed(1) }} MB</span>
+          </div>
+          <div ref="memChartRef" class="chart-body"></div>
         </div>
-        <div ref="memChartRef" class="chart-body"></div>
+
+        <div class="chart-card glass">
+          <div class="chart-header">
+            <span class="chart-title">帧率 (FPS)</span>
+            <span class="chart-value">{{ currentFps.toFixed(1) }} FPS</span>
+          </div>
+          <div ref="fpsChartRef" class="chart-body"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -104,8 +114,10 @@ const selectedPid = ref<number | null>(deviceStore.activePid)
 
 const cpuChartRef = ref<HTMLElement | null>(null)
 const memChartRef = ref<HTMLElement | null>(null)
+const fpsChartRef = ref<HTMLElement | null>(null)
 let cpuChart: echarts.ECharts | null = null
 let memChart: echarts.ECharts | null = null
+let fpsChart: echarts.ECharts | null = null
 
 const activePid = computed(() => deviceStore.activePid)
 const isPaused = computed(() => deviceStore.isPaused)
@@ -117,6 +129,10 @@ const currentCpu = computed(() => {
 })
 const currentMem = computed(() => {
   const data = deviceStore.performanceData.memory
+  return data.length > 0 ? data[data.length - 1] : 0
+})
+const currentFps = computed(() => {
+  const data = deviceStore.performanceData.fps
   return data.length > 0 ? data[data.length - 1] : 0
 })
 
@@ -153,12 +169,27 @@ function initCharts() {
     memChart = echarts.init(memChartRef.value)
     memChart.setOption(getChartOption('内存占用', '#38bdf8'))
   }
+  if (fpsChartRef.value) {
+    fpsChart = echarts.init(fpsChartRef.value)
+    fpsChart.setOption(getChartOption('帧率', '#10b981'))
+  }
 }
 
 function getChartOption(name: string, color: string) {
   return {
+    animation: false,
     tooltip: { trigger: 'axis' },
-    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    grid: { left: '3%', right: '4%', bottom: '3%', top: '10%', containLabel: true },
+    dataZoom: [
+      {
+        type: 'inside',
+        start: 0,
+        end: 100,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: true
+      }
+    ],
     xAxis: { type: 'category', data: [], boundaryGap: false },
     yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed' } } },
     series: [{
@@ -173,13 +204,16 @@ function getChartOption(name: string, color: string) {
           { offset: 1, color: color + '00' }
         ])
       },
-      symbol: 'none'
+      symbol: 'none',
+      large: true,
+      largeThreshold: 200,
+      sampling: 'lttb'
     }]
   }
 }
 
 watch(() => deviceStore.performanceData, (newData) => {
-  if (cpuChart && memChart) {
+  if (cpuChart && memChart && fpsChart) {
     cpuChart.setOption({
       xAxis: { data: newData.timestamps },
       series: [{ data: newData.cpu }]
@@ -187,6 +221,10 @@ watch(() => deviceStore.performanceData, (newData) => {
     memChart.setOption({
       xAxis: { data: newData.timestamps },
       series: [{ data: newData.memory }]
+    })
+    fpsChart.setOption({
+      xAxis: { data: newData.timestamps },
+      series: [{ data: newData.fps }]
     })
   }
 }, { deep: true })
@@ -198,8 +236,10 @@ watch(activePid, async (newPid) => {
   } else {
     cpuChart?.dispose()
     memChart?.dispose()
+    fpsChart?.dispose()
     cpuChart = null
     memChart = null
+    fpsChart = null
   }
 })
 
@@ -212,14 +252,21 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 停止性能监控
+  if (isPolling.value) {
+    deviceStore.setActivePid(null)
+  }
+
   window.removeEventListener('resize', handleResize)
   cpuChart?.dispose()
   memChart?.dispose()
+  fpsChart?.dispose()
 })
 
 function handleResize() {
   cpuChart?.resize()
   memChart?.resize()
+  fpsChart?.resize()
 }
 </script>
 
@@ -299,10 +346,23 @@ function handleResize() {
 
 .charts-container {
   flex: 1;
-  display: grid;
-  grid-template-rows: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  overflow: auto;
+  overflow: hidden;
+}
+
+.cpu-chart {
+  flex: 1;
+  min-height: 0;
+}
+
+.bottom-charts {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  min-height: 0;
 }
 
 .chart-card {

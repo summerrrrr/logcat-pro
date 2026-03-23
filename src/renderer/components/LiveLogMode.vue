@@ -218,7 +218,8 @@ function onClear() {
 
 async function onExport() {
   const filePath = await window.electronAPI.storage.export(deviceStore.activeDevice || undefined, {
-    defaultPath: configStore.fileSavePath || undefined
+    defaultPath: configStore.fileSavePath || undefined,
+    logs: logStore.filteredLogs
   })
   if (filePath) {
     ElMessage.success(`已导出`)

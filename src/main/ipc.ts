@@ -75,6 +75,7 @@ export function setupIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle('device:connect-wifi', async (_e, ip: string, port: number) => adbManager.connectWifi(ip, port))
   ipcMain.handle('device:list-processes', async (_e, serial: string) => adbManager.listProcesses(serial))
   ipcMain.handle('device:get-performance', async (_e, serial: string, pid: number) => adbManager.getProcessPerformance(serial, pid))
+  ipcMain.handle('device:clear-process-stats', async (_e, serial: string, pid: number) => adbManager.clearProcessStats(serial, pid))
   ipcMain.handle('device:list-dir', async (_e, serial: string, path: string) => adbManager.listDirectory(serial, path))
   ipcMain.handle('device:read-file', async (_e, serial: string, path: string) => adbManager.readFile(serial, path))
   ipcMain.handle('device:disconnect-all', async () => adbManager.disconnectAll())
@@ -119,19 +120,19 @@ export function setupIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle('log:clear', async (_e, serial: string) => inMemoryLogs.set(serial, []))
 
   // Storage
-  ipcMain.handle('storage:export', async (_e, serial?: string, options?: { defaultPath?: string }) => {
-    const logsToExport = serial ? (inMemoryLogs.get(serial) || []) : []
+  ipcMain.handle('storage:export', async (_e, serial?: string, options?: { defaultPath?: string, logs?: LogEntry[] }) => {
+    const logsToExport = options?.logs || (serial ? (inMemoryLogs.get(serial) || []) : [])
     if (logsToExport.length === 0) return null
-    let targetDir = options?.defaultPath
-    if (!targetDir) {
-      const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-        title: '选择导出目录',
-        properties: ['openDirectory', 'createDirectory'],
-        defaultPath: app.getPath('downloads')
-      })
-      if (canceled || filePaths.length === 0) return null
-      targetDir = filePaths[0]
-    }
+    
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: '选择导出目录',
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: options?.defaultPath || app.getPath('downloads')
+    })
+    
+    if (canceled || filePaths.length === 0) return null
+    const targetDir = filePaths[0]
+
     try {
       const MAX_FILE_SIZE = 100 * 1024 * 1024
       const timestamp = Date.now()
