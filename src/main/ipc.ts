@@ -9,7 +9,7 @@ import { LogStore } from './storage/LogStore'
 import { Analyzer } from './analyzer/Analyzer'
 import { LLMManager } from './ai/LLMManager'
 import { PDFGenerator } from './ai/PDFGenerator'
-import { LogEntry, AIAnalysisRequest } from '../shared/types'
+import { LogEntry, AIAnalysisRequest, AIProviderType } from '../shared/types'
 
 const execPromise = promisify(exec)
 
@@ -49,6 +49,10 @@ export function setupIpc(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('analysis:analyzeAI', async (_e, request: AIAnalysisRequest) => {
     return await llmManager.analyze(request)
+  })
+
+  ipcMain.handle('config:fetchModels', async (_e, type: AIProviderType, apiKey: string, apiUrl: string) => {
+    return await llmManager.fetchModels(type, apiKey, apiUrl)
   })
 
   ipcMain.handle('analysis:exportPDF', async (_e, analysis: string, errorLog: LogEntry, contextLogs: LogEntry[], defaultPath?: string) => {

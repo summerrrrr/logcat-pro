@@ -60,6 +60,7 @@ const electronAPI = {
   config: {
     setGeminiKey: (key: string) => ipcRenderer.invoke('config:setGeminiKey', key),
     setGeminiConfig: (config: { key: string, url: string }) => ipcRenderer.invoke('config:setGeminiConfig', config),
+    fetchModels: (type: string, apiKey: string, apiUrl: string) => ipcRenderer.invoke('config:fetchModels', type, apiKey, apiUrl),
     onOpenSettings: (callback: (tab: string) => void) => {
       ipcRenderer.on('menu:open-settings', (_event, tab) => callback(tab))
       return () => ipcRenderer.removeAllListeners('menu:open-settings')

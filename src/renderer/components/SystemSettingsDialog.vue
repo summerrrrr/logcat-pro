@@ -85,26 +85,59 @@
       custom-class="provider-dialog"
     >
       <el-form :model="providerForm" label-position="top" size="default">
-        <el-form-item label="模型名称" required>
-          <el-input v-model="providerForm.name" placeholder="例如: Gemini 1.5 Pro" />
-        </el-form-item>
         <el-form-item label="接口类型">
           <el-select v-model="providerForm.type" style="width: 100%" @change="onProviderTypeChange">
             <el-option label="Google Gemini" value="gemini" />
             <el-option label="OpenAI" value="openai" />
             <el-option label="Claude" value="claude" />
+            <el-option label="Codex" value="codex" />
             <el-option label="Custom (OpenAI Compatible)" value="custom" />
           </el-select>
         </el-form-item>
         <el-form-item label="API Key" required>
-          <el-input v-model="providerForm.apiKey" type="password" show-password placeholder="API 密钥" />
+          <el-input v-model="providerForm.apiKey" type="password" show-password placeholder="粘贴你的 API 密钥" />
         </el-form-item>
-        <el-form-item label="API URL" required>
-          <el-input v-model="providerForm.apiUrl" placeholder="请求地址" />
+        <el-form-item label="模型">
+          <div class="model-fetch-group">
+            <el-select
+              v-model="providerForm.model"
+              style="flex: 1"
+              filterable
+              allow-create
+              default-first-option
+              :placeholder="fetchingModels ? '正在获取...' : '请先点击获取模型列表'"
+              :loading="fetchingModels"
+            >
+              <el-option
+                v-for="m in modelList"
+                :key="m.id"
+                :label="`${m.name}${m.name !== m.id ? ' (' + m.id + ')' : ''}`"
+                :value="m.id"
+              />
+            </el-select>
+            <el-button
+              :icon="Refresh"
+              :loading="fetchingModels"
+              @click="onFetchModels"
+              :disabled="!providerForm.apiKey"
+              title="获取模型列表"
+            />
+          </div>
+          <div class="setting-desc" v-if="!providerForm.apiKey">填写 API Key 后可获取模型列表，也可直接输入模型 ID</div>
         </el-form-item>
-        <el-form-item label="模型 ID" required>
-          <el-input v-model="providerForm.model" placeholder="例如: gemini-1.5-pro" />
-        </el-form-item>
+        <div class="advanced-toggle" @click="showAdvanced = !showAdvanced">
+          <el-icon class="toggle-arrow" :class="{ expanded: showAdvanced }"><ArrowRight /></el-icon>
+          <span>高级设置</span>
+          <span class="toggle-hint">自定义名称、URL</span>
+        </div>
+        <template v-if="showAdvanced">
+          <el-form-item label="显示名称">
+            <el-input v-model="providerForm.name" :placeholder="defaultProviderName" />
+          </el-form-item>
+          <el-form-item label="API URL">
+            <el-input v-model="providerForm.apiUrl" placeholder="请求地址（使用代理时修改）" />
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="providerDialogVisible = false">取消</el-button>
@@ -115,9 +148,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useConfigStore } from '../stores/configStore'
-import { FolderOpened, Plus, Delete, Edit } from '@element-plus/icons-vue'
+import { FolderOpened, Plus, Delete, Edit, ArrowRight, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { AIProviderType, AIProviderConfig } from '../../shared/types'
 
@@ -129,6 +162,7 @@ const activeTab = ref('general')
 const providerDialogVisible = ref(false)
 const isEditing = ref(false)
 const editingId = ref('')
+const showAdvanced = ref(false)
 const providerForm = reactive({
   name: '',
   type: 'gemini' as AIProviderType,
@@ -136,6 +170,45 @@ const providerForm = reactive({
   apiUrl: '',
   model: ''
 })
+
+const providerPresets: Record<string, { name: string; url: string; model: string }> = {
+  gemini: { name: 'Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', model: 'gemini-pro' },
+  openai: { name: 'OpenAI', url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o' },
+  claude: { name: 'Claude', url: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-4-20250514' },
+  codex: { name: 'Codex', url: 'https://api.openai.com/v1/responses', model: 'codex-mini-latest' },
+  custom: { name: 'Custom', url: '', model: '' }
+}
+
+const defaultProviderName = computed(() => {
+  const preset = providerPresets[providerForm.type]
+  return preset ? `${preset.name} (${providerForm.model || '自定义'})` : ''
+})
+
+const modelList = ref<{ id: string; name: string }[]>([])
+const fetchingModels = ref(false)
+
+async function onFetchModels() {
+  if (!providerForm.apiKey) {
+    ElMessage.warning('请先填写 API Key')
+    return
+  }
+  fetchingModels.value = true
+  try {
+    const apiUrl = providerForm.apiUrl || providerPresets[providerForm.type]?.url || ''
+    const models = await window.electronAPI.config.fetchModels(providerForm.type, providerForm.apiKey, apiUrl)
+    modelList.value = models || []
+    if (models.length === 0) {
+      ElMessage.info('未获取到可用模型')
+    } else {
+      ElMessage.success(`获取到 ${models.length} 个模型`)
+    }
+  } catch (e: any) {
+    console.error('Fetch models failed:', e)
+    ElMessage.error(`获取模型列表失败: ${e.message || e}`)
+  } finally {
+    fetchingModels.value = false
+  }
+}
 
 async function onBrowseDirectory() {
   const path = await window.electronAPI.storage.selectDirectory()
@@ -149,6 +222,7 @@ function getTagType(type: string) {
     gemini: 'primary',
     openai: 'success',
     claude: 'warning',
+    codex: 'danger',
     custom: 'info'
   }
   return types[type] || 'info'
@@ -157,32 +231,34 @@ function getTagType(type: string) {
 function openAddProvider() {
   isEditing.value = false
   editingId.value = ''
+  showAdvanced.value = false
+  modelList.value = []
+  const preset = providerPresets['gemini']
   Object.assign(providerForm, {
     name: '',
     type: 'gemini',
     apiKey: '',
-    apiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
-    model: 'gemini-pro'
+    apiUrl: preset.url,
+    model: ''
   })
   providerDialogVisible.value = true
 }
 
 function onProviderTypeChange(type: AIProviderType) {
-  if (type === 'gemini') {
-    providerForm.apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent'
-    providerForm.model = 'gemini-pro'
-  } else if (type === 'openai') {
-    providerForm.apiUrl = 'https://api.openai.com/v1/chat/completions'
-    providerForm.model = 'gpt-4o'
-  } else if (type === 'claude') {
-    providerForm.apiUrl = 'https://api.anthropic.com/v1/messages'
-    providerForm.model = 'claude-3-5-sonnet-20240620'
+  const preset = providerPresets[type]
+  if (preset) {
+    providerForm.apiUrl = preset.url
+    providerForm.model = preset.model
+    providerForm.name = ''
   }
+  modelList.value = []
 }
 
 function editProvider(p: AIProviderConfig) {
   isEditing.value = true
   editingId.value = p.id
+  showAdvanced.value = true
+  modelList.value = p.model ? [{ id: p.model, name: p.model }] : []
   Object.assign(providerForm, {
     name: p.name,
     type: p.type,
@@ -194,17 +270,32 @@ function editProvider(p: AIProviderConfig) {
 }
 
 function saveProvider() {
-  if (!providerForm.name || !providerForm.apiKey || !providerForm.apiUrl || !providerForm.model) {
-    ElMessage.warning('请填写完整信息')
+  if (!providerForm.apiKey) {
+    ElMessage.warning('请填写 API Key')
+    return
+  }
+
+  const preset = providerPresets[providerForm.type]
+  const finalData = {
+    name: providerForm.name || preset?.name || providerForm.type,
+    type: providerForm.type,
+    apiKey: providerForm.apiKey,
+    apiUrl: providerForm.apiUrl || preset?.url || '',
+    model: providerForm.model || preset?.model || ''
+  }
+
+  if (!finalData.apiUrl || !finalData.model) {
+    ElMessage.warning('请在高级设置中填写 API URL 和模型 ID')
+    showAdvanced.value = true
     return
   }
 
   if (isEditing.value) {
-    configStore.updateAIProvider(editingId.value, { ...providerForm })
+    configStore.updateAIProvider(editingId.value, finalData)
   } else {
-    configStore.addAIProvider({ ...providerForm, enabled: true })
+    configStore.addAIProvider({ ...finalData, enabled: true })
   }
-  
+
   providerDialogVisible.value = false
 }
 
@@ -230,6 +321,12 @@ defineExpose({
 }
 
 .path-input-group {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.model-fetch-group {
   display: flex;
   gap: 8px;
   width: 100%;
@@ -310,6 +407,37 @@ defineExpose({
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  user-select: none;
+  transition: color 0.2s;
+}
+
+.advanced-toggle:hover {
+  color: var(--accent);
+}
+
+.toggle-arrow {
+  transition: transform 0.2s;
+  font-size: 12px;
+}
+
+.toggle-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.toggle-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 :deep(.settings-dialog), :deep(.provider-dialog) {

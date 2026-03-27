@@ -75,7 +75,7 @@ export interface AIChatMessage {
   content: string
 }
 
-export type AIProviderType = 'gemini' | 'openai' | 'claude' | 'custom'
+export type AIProviderType = 'gemini' | 'openai' | 'claude' | 'codex' | 'custom'
 
 export interface AIProviderConfig {
   id: string

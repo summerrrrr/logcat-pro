@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, reactive } from 'vue'
-import type { Issue, LogEntry, LogLevel } from '../../shared/types'
+import type { Issue, LogEntry, LogLevel, AIProviderConfig } from '../../shared/types'
+import { useConfigStore } from './configStore'
 
 export const useAnalysisStore = defineStore('analysis', () => {
   const issues = ref<Issue[]>([])
@@ -18,21 +19,29 @@ export const useAnalysisStore = defineStore('analysis', () => {
   }
 
   async function analyzeWithAI(logs: LogEntry[], context?: string) {
+    const configStore = useConfigStore()
+    const provider = configStore.aiProviders.find(p => p.id === configStore.activeAIProviderId)
+    if (!provider) {
+      addChatMessage('assistant', '**未配置 AI 模型** \n\n请先在右上角设置中添加并选择一个 AI 模型。')
+      return
+    }
+
     isAnalyzing.value = true
     try {
-      // 必须将 Vue 响应式对象（Proxy）转换为纯 JS 对象，否则 Electron IPC 会报 "could not be cloned"
-      // 提取需要的字段，过滤掉 Date 这种在 IPC 序列化中可能出问题的对象
       const cleanHistory = chatHistory.value.map(msg => ({
         role: msg.role,
         content: msg.content
       }))
-      
+
       const cleanLogs = JSON.parse(JSON.stringify(logs))
 
-      const request = { 
-        logs: cleanLogs, 
-        context, 
-        history: cleanHistory 
+      const providerConfig = JSON.parse(JSON.stringify(provider))
+
+      const request = {
+        logs: cleanLogs,
+        context,
+        history: cleanHistory,
+        providerConfig
       }
       
       const result = await window.electronAPI.analysis.analyzeAI(request)

@@ -26,13 +26,29 @@
             <el-icon><Loading /></el-icon>
           </div>
           <div class="message-content glass typing">
-            正在深度分析日志，请稍候...
+            <span class="typing-dots"><span /><span /><span /></span>
           </div>
         </div>
       </div>
 
       <div class="chat-input-area glass">
         <div class="input-tools">
+          <div class="tools-left">
+            <el-select
+              v-model="configStore.activeAIProviderId"
+              placeholder="选择 AI 模型"
+              size="small"
+              class="provider-select"
+              :disabled="isAnalyzing"
+            >
+              <el-option
+                v-for="p in configStore.aiProviders"
+                :key="p.id"
+                :label="`${p.name} (${p.model})`"
+                :value="p.id"
+              />
+            </el-select>
+          </div>
           <div class="tools-right">
             <el-button size="small" link @click="clearHistory">清除聊天记录</el-button>
           </div>
@@ -67,11 +83,13 @@ import { ChatDotRound, MagicStick, Avatar, User, Loading, Promotion } from '@ele
 import { useAnalysisStore } from '../stores/analysisStore'
 import { useLogStore } from '../stores/logStore'
 import { useDeviceStore } from '../stores/deviceStore'
+import { useConfigStore } from '../stores/configStore'
 import { marked } from 'marked'
 
 const analysisStore = useAnalysisStore()
 const logStore = useLogStore()
 const deviceStore = useDeviceStore()
+const configStore = useConfigStore()
 
 const userInput = ref('')
 const messageListRef = ref<HTMLElement | null>(null)
@@ -240,6 +258,34 @@ onMounted(scrollToBottom)
   word-break: break-word;
 }
 
+.message-content.typing {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: dot-bounce 1.4s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: 0s; }
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dot-bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
 :deep(.message-content pre) {
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -270,8 +316,22 @@ onMounted(scrollToBottom)
 .input-tools {
   margin-bottom: 8px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
+}
+
+.tools-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:deep(.provider-select) {
+  width: 240px;
+}
+
+:deep(.provider-select .el-input__inner) {
+  font-size: 12px;
 }
 
 .input-box {
