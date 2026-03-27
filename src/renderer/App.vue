@@ -27,9 +27,10 @@
         ref="fileAnalyzerRef" 
       />
       
-      <ChatMode 
-        v-else-if="currentAppMode === 'chat'" 
-        @select-mode="switchMode" 
+      <AutoTestMode
+        v-else-if="currentAppMode === 'chat'"
+        @select-mode="switchMode"
+        @open-settings="openSettingsTab"
       />
       
       <PerfMode 
@@ -56,7 +57,7 @@ import FileExplorerDialog from './components/FileExplorerDialog.vue'
 import LiveLogMode from './components/LiveLogMode.vue'
 import FileAnalyzerMode from './components/FileAnalyzerMode.vue'
 import HomeMode from './components/HomeMode.vue'
-import ChatMode from './components/ChatMode.vue'
+import AutoTestMode from './components/AutoTestMode.vue'
 import PerfMode from './components/PerfMode.vue'
 import ScreenshotView from './views/ScreenshotView.vue'
 

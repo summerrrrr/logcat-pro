@@ -15,6 +15,7 @@ const electronAPI = {
     clearProcessStats: (serial: string, pid: number) => ipcRenderer.invoke('device:clear-process-stats', serial, pid),
     listDir: (serial: string, path: string) => ipcRenderer.invoke('device:list-dir', serial, path),
     readFile: (serial: string, path: string) => ipcRenderer.invoke('device:read-file', serial, path),
+    listPackages: (serial: string) => ipcRenderer.invoke('device:list-packages', serial),
     onChanged: (callback: (devices: unknown[]) => void) => {
       ipcRenderer.on('device:changed', (_event, devices) => callback(devices))
       return () => ipcRenderer.removeAllListeners('device:changed')
@@ -91,6 +92,14 @@ const electronAPI = {
     onMaximizedChange: (callback: (state: boolean) => void) => {
       ipcRenderer.on('window:maximized-change', (_event, isMaximized) => callback(isMaximized))
       return () => ipcRenderer.removeAllListeners('window:maximized-change')
+    }
+  },
+  visualTest: {
+    init: (apiKey: string) => ipcRenderer.invoke('visual-test:init', apiKey),
+    run: (testCase: any) => ipcRenderer.invoke('visual-test:run', testCase),
+    onLog: (callback: (msg: string) => void) => {
+      ipcRenderer.on('visual-test:log', (_event, msg) => callback(msg))
+      return () => ipcRenderer.removeAllListeners('visual-test:log')
     }
   }
 }

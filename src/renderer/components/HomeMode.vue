@@ -43,14 +43,14 @@
         <el-icon class="arrow-icon"><ArrowRight /></el-icon>
       </div>
 
-      <!-- AI Q&A Card -->
+      <!-- Auto Test Card -->
       <div class="module-card card-chat" @click="$emit('select-mode', 'chat')">
         <div class="card-icon">
-          <el-icon><ChatDotRound /></el-icon>
+          <el-icon><VideoPlay /></el-icon>
         </div>
         <div class="card-content">
-          <h3>智能问答</h3>
-          <p>基于大模型的 Android 开发知识库，解答系统架构、调试技巧与代码优化建议。</p>
+          <h3>自动化测试</h3>
+          <p>基于 AI 视觉识别的 UI 自动化测试，支持 Android 设备交互和结果验证。</p>
         </div>
         <el-icon class="arrow-icon"><ArrowRight /></el-icon>
       </div>
@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { Monitor, Iphone, ArrowRight, PieChart, ChatDotRound, Document } from '@element-plus/icons-vue'
+import { Monitor, Iphone, ArrowRight, PieChart, VideoPlay, Document } from '@element-plus/icons-vue'
 
 defineEmits(['select-mode', 'open-settings'])
 </script>

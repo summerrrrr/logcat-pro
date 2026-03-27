@@ -61,9 +61,9 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, h } from 'vue'
-import { 
+import {
   Minus, FullScreen, CopyDocument, Close, Setting, Plus,
-  Iphone, Document, PieChart, ChatDotRound, Monitor
+  Iphone, Document, PieChart, Monitor, VideoPlay
 } from '@element-plus/icons-vue'
 import { ElMessageBox, ElCheckbox, ElRadioGroup, ElRadio } from 'element-plus'
 import { useConfigStore } from '../stores/configStore'
@@ -85,7 +85,7 @@ const modeTitle = computed(() => {
     'live': '实时设备日志',
     'file': '本地文件分析',
     'perf': '性能监控中心',
-    'chat': '智能诊断助手'
+    'chat': '自动化测试'
   }
   return titles[props.currentMode] || ''
 })
@@ -95,7 +95,7 @@ const modeIcon = computed(() => {
     'live': Iphone,
     'file': Document,
     'perf': PieChart,
-    'chat': ChatDotRound
+    'chat': VideoPlay
   }
   return icons[props.currentMode] || Monitor
 })

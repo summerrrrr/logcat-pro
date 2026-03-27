@@ -81,7 +81,7 @@ export class LLMManager {
       .replace(/\/v1beta\/models.*$/, '')                          // Gemini models
       .replace(/\/v1\/chat\/completions.*$/, '')                   // OpenAI
       .replace(/\/v1\/responses.*$/, '')                           // Codex
-      .replace(/\/v1\/messages.*$/, '')                             // Claude
+      .replace(/\/v1\/messages?.*$/, '')                             // Claude (/v1/message or /v1/messages)
       .replace(/\/v1\/models.*$/, '')                               // models endpoint
     return url
   }

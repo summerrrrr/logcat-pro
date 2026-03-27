@@ -555,13 +555,112 @@ export class AdbManager extends EventEmitter {
   readFile(serial: string, path: string): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.adbPath) return reject(new Error('ADB not found'))
-      
+
       // We use cat. NOTE: this only works well for text files and files we have permission to read.
       exec(`"${this.adbPath}" -s ${serial} shell cat "${path}"`, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, timeout: 10000 }, (error, stdout, stderr) => {
         if (error) {
           return reject(new Error(stderr || error.message))
         }
         resolve(stdout)
+      })
+    })
+  }
+
+  dumpUIHierarchy(serial: string): Promise<Array<{ name: string; x: number; y: number; width: number; height: number; type: string; resourceId: string; clickable: boolean }>> {
+    return new Promise((resolve, reject) => {
+      if (!this.adbPath) return reject(new Error('ADB not found'))
+
+      // 1. dump UI 到设备默认路径（忽略 stderr，因为成功信息也在 stderr）
+      exec(`"${this.adbPath}" -s ${serial} shell uiautomator dump`, {
+        encoding: 'utf-8',
+        timeout: 10000
+      }, (err, stdout, stderr) => {
+        // uiautomator dump 成功时会输出到 stderr，所以不能简单判断 err
+        // 只要不是真正的错误（如设备断开），就继续读取 XML
+
+        // 2. 读取 XML 内容（默认路径 /sdcard/window_dump.xml）
+        exec(`"${this.adbPath}" -s ${serial} shell cat /sdcard/window_dump.xml`, {
+          encoding: 'utf-8',
+          maxBuffer: 5 * 1024 * 1024,
+          timeout: 10000
+        }, (err2, stdout) => {
+          if (err2) return reject(new Error(`Read XML failed: ${err2.message}`))
+
+          // 3. 解析 XML 中的 node
+          const elements: Array<{ name: string; x: number; y: number; width: number; height: number; type: string; resourceId: string; clickable: boolean }> = []
+          const nodeRegex = /<node[^>]*>/g
+          let match: RegExpExecArray | null
+
+          while ((match = nodeRegex.exec(stdout)) !== null) {
+            const node = match[0]
+
+            const clickable = /clickable="true"/.test(node)
+            const enabled = /enabled="true"/.test(node)
+            if (!clickable || !enabled) continue
+
+            const text = node.match(/text="([^"]*)"/)
+            const contentDesc = node.match(/content-desc="([^"]*)"/)
+            const className = node.match(/class="([^"]*)"/)
+            const resId = node.match(/resource-id="([^"]*)"/)
+            const bounds = node.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/)
+
+            if (!bounds) continue
+
+            const x1 = parseInt(bounds[1])
+            const y1 = parseInt(bounds[2])
+            const x2 = parseInt(bounds[3])
+            const y2 = parseInt(bounds[4])
+
+            // 过滤掉太小或太大的控件
+            const w = x2 - x1
+            const h = y2 - y1
+            if (w < 10 || h < 10) continue
+            if (w > 1500 && h > 2500) continue
+
+            const name = (text && text[1]) || (contentDesc && contentDesc[1]) || (resId && resId[1]?.split('/').pop()) || ''
+            if (!name) continue
+
+            const cls = className ? className[1] : ''
+            let type = 'button'
+            if (cls.includes('EditText')) type = 'input'
+            else if (cls.includes('ListView') || cls.includes('RecyclerView')) type = 'list'
+            else if (cls.includes('TabWidget') || cls.includes('BottomNav')) type = 'tab'
+            else if (cls.includes('ImageView') || cls.includes('ImageButton')) type = 'icon'
+            else if (cls.includes('TextView')) type = 'text_button'
+
+            elements.push({
+              name,
+              x: Math.round((x1 + x2) / 2),
+              y: Math.round((y1 + y2) / 2),
+              width: w,
+              height: h,
+              type,
+              resourceId: resId ? resId[1] : '',
+              clickable: true
+            })
+          }
+
+          // 清理临时文件
+          exec(`"${this.adbPath}" -s ${serial} shell rm /sdcard/window_dump.xml`)
+
+          resolve(elements)
+        })
+      })
+    })
+  }
+
+  listPackages(serial: string): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.adbPath) return reject(new Error('ADB not found'))
+
+      exec(`"${this.adbPath}" -s ${serial} shell pm list packages`, { encoding: 'utf-8', timeout: 10000 }, (error, stdout, stderr) => {
+        if (error) {
+          return reject(new Error(stderr || error.message))
+        }
+        const packages = stdout.split('\n')
+          .map(line => line.replace('package:', '').trim())
+          .filter(pkg => pkg.length > 0)
+        resolve(packages)
       })
     })
   }

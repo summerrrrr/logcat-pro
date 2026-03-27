@@ -28,6 +28,8 @@
     "vue-json-pretty": "^2.6.0"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@playwright/test": "^1.58.2",
     "@types/better-sqlite3": "^7.6.0",
     "@types/marked": "^5.0.2",
     "@vitejs/plugin-vue": "^5.1.0",
