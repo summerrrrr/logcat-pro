@@ -83,7 +83,14 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useDeviceStore } from '../stores/deviceStore'
 import { useConfigStore } from '../stores/configStore'
-import type { TestResult } from '../test-automation/core/types'
+export interface TestResult {
+  testId: string
+  passed: boolean
+  duration: number
+  steps: any[]
+  screenshots: string[]
+}
+
 
 const deviceStore = useDeviceStore()
 const configStore = useConfigStore()
